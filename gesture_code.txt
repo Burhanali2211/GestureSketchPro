@@ -1,0 +1,142 @@
+import cvzone
+import cv2
+from cvzone.HandTrackingModule import HandDetector
+import numpy as np
+import google.generativeai as genai
+from PIL import Image
+import streamlit as st
+import pyttsx3  # For voice guidance
+
+# Set up the Streamlit page configuration
+st.set_page_config(layout="wide")
+
+# Add a neon blue title
+st.markdown('<h1 style="color: #00FFFF; text-align: center;">AI Hand Gesture Math Solver</h1>', unsafe_allow_html=True)
+
+# Create two columns: one for the webcam and one for AI response
+col1, col2 = st.columns([3, 2])
+
+with col1:
+    run = st.checkbox('Run', value=True)
+    FRAME_WINDOW = st.image([])
+
+with col2:
+    st.title("Answer")
+    output_text_area = st.empty()  # Updated to allow line-by-line display
+
+# Initialize Google Generative AI
+genai.configure(api_key="AIzaSyCf8cs8j65vOAfwPMEvor72ynE1JFhj2aY")
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Initialize the webcam to capture video
+if 'cap' not in st.session_state:
+    st.session_state.cap = cv2.VideoCapture(0)
+    st.session_state.cap.set(3, 1280)
+    st.session_state.cap.set(4, 720)
+
+# Initialize HandDetector for hand tracking
+detector = HandDetector(staticMode=False, maxHands=1, modelComplexity=1, detectionCon=0.7, minTrackCon=0.5)
+
+
+# Function to initialize the speech engine
+def init_speech_engine():
+    engine = pyttsx3.init()
+    engine.setProperty('rate', 150)
+    return engine
+
+
+# Function to speak the text using pyttsx3
+def speak(text):
+    # Re-initialize the engine to ensure it works with each button press
+    engine = init_speech_engine()
+    engine.say(text)
+    engine.runAndWait()
+
+
+def getHandInfo(img):
+    hands, img = detector.findHands(img, draw=False, flipType=True)
+    if hands:
+        hand = hands[0]
+        lmList = hand["lmList"]
+        fingers = detector.fingersUp(hand)
+        return fingers, lmList
+    else:
+        return None
+
+
+def draw(info, prev_pos, canvas):
+    fingers, lmList = info
+    current_pos = None
+    if fingers == [0, 1, 0, 0, 0]:
+        current_pos = lmList[8][0:2]
+        if prev_pos is None:
+            prev_pos = current_pos
+        cv2.line(canvas, current_pos, prev_pos, (0, 255, 0), 10)  # Green color and bold lines
+    elif fingers == [1, 0, 0, 0, 0]:
+        canvas = np.zeros_like(img)  # Clear the canvas when thumb is up
+    return current_pos, canvas
+
+
+def sendToAI(model, canvas, fingers):
+    if fingers == [1, 0, 0, 0, 1]:
+        pil_image = Image.fromarray(canvas)
+        response = model.generate_content(["Solve this math problem", pil_image])
+        return response.text
+    return "Please provide a math problem."
+
+
+# Function to display AI response line by line
+def display_line_by_line(text):
+    output_lines = text.splitlines()
+    for line in output_lines:
+        output_text_area.text(line)
+        st.write("")  # Ensure each response is on a new line
+
+
+prev_pos = None
+canvas = None
+output_text = ""
+
+# Create buttons for voice guidance aligned in one row
+col_buttons = st.columns(4)
+
+with col_buttons[0]:
+    if st.button("How to Write ☝️"):
+        speak("To start writing, raise your index finger and draw on the screen.")
+
+with col_buttons[1]:
+    if st.button("How to Stop Writing 👆"):
+        speak("To stop writing, raise your thumb finger alone.")
+
+with col_buttons[2]:
+    if st.button("How to Get Answer 🤙"):
+        speak("To send your drawing to AI, raise your pinky and index finger together.")
+
+with col_buttons[3]:
+    if st.button("How to Clear Screen 👍"):
+        speak("To clear the screen, raise your thumb finger.")
+
+# Start video loop and processing
+if run:
+    while True:
+        success, img = st.session_state.cap.read()
+        img = cv2.flip(img, 1)
+        if canvas is None:
+            canvas = np.zeros_like(img)
+
+        info = getHandInfo(img)
+        if info:
+            fingers, lmList = info
+            prev_pos, canvas = draw(info, prev_pos, canvas)
+            output_text = sendToAI(model, canvas, fingers)
+
+        image_combined = cv2.addWeighted(img, 0.7, canvas, 0.3, 0)
+        FRAME_WINDOW.image(image_combined, channels="BGR")
+
+        # Display AI response in column 2
+        if output_text:
+            display_line_by_line(output_text)
+
+        cv2.waitKey(1)  # No need for multiple window pop-ups
+else:
+    st.session_state.cap.release()  # Release the camera when not running
