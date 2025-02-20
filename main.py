@@ -31,7 +31,7 @@ with col2:
     output_text_area = st.empty()  # Update as needed to minimize updates
 
 # Initialize Google Generative AI
-genai.configure(api_key="AIzaSyCf8cs8j65vOAfwPMEvor72ynE1JFhj2aY")
+genai.configure(api_key="Your_Api")
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 # Initialize the webcam to capture video
